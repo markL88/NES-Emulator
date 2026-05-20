@@ -23,7 +23,7 @@
 
 // Uncomment one of below, ODROID support SPIFFS and SD
 // #define FILESYSTEM_BEGIN SPIFFS.begin(false, FSROOT); FS filesystem = SPIFFS;
-#define FILESYSTEM_BEGIN SD.begin(SS, SPI, 40000000, FSROOT); FS filesystem = SD;
+#define FILESYSTEM_BEGIN SD.begin(SS, SPI, FSROOT); FS filesystem = SD;
 
 /* enable audio */
 #define HW_AUDIO
@@ -96,8 +96,8 @@
 #define HW_CONTROLLER_GPIO_B 21
 
 // Your Start & Select Buttons (Commented out for now as requested)
-// #define HW_CONTROLLER_GPIO_SELECT 4
-// #define HW_CONTROLLER_GPIO_START 5
+ #define HW_CONTROLLER_GPIO_SELECT 41
+ #define HW_CONTROLLER_GPIO_START 42
 
 #endif /* custom hardware */
 
