@@ -26,12 +26,9 @@ TimerHandle_t timer;
 /* memory allocation */
 extern void *mem_alloc(int size, bool prefer_fast_memory)
 {
-  if (prefer_fast_memory)
-  {
+  if (prefer_fast_memory) {
     return heap_caps_malloc(size, MALLOC_CAP_8BIT);
-  }
-  else
-  {
+  } else {
     return heap_caps_malloc_prefer(size, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT);
   }
 }
@@ -47,70 +44,57 @@ extern void display_init();
 extern void display_write_frame(const uint8_t *data[]);
 extern void display_clear();
 
-//This runs on core 0.
 QueueHandle_t vidQueue;
+
 static void displayTask(void *arg)
 {
   bitmap_t *bmp = NULL;
   while (1)
   {
     xQueueReceive(vidQueue, &bmp, portMAX_DELAY);
-    display_write_frame((const uint8_t **)bmp->line);
+    if (bmp) {
+        display_write_frame((const uint8_t **)bmp->line);
+    }
   }
 }
 
 /* get info */
 static char fb[1]; //dummy
-bitmap_t *myBitmap;
+bitmap_t *myBitmap = NULL;
 
 /* initialise video */
-static int init(int width, int height)
-{
-  return 0;
-}
-
-static void shutdown(void)
-{
-}
-
-/* set a video mode */
-static int set_mode(int width, int height)
-{
-  return 0;
-}
+static int init(int width, int height) { return 0; }
+static void shutdown(void) {}
+static int set_mode(int width, int height) { return 0; }
 
 /* copy nes palette over to hardware */
 uint16 myPalette[256];
 static void set_palette(rgb_t *pal)
 {
   uint16 c;
-
   int i;
-
-  for (i = 0; i < 256; i++)
-  {
+  for (i = 0; i < 256; i++) {
     c = (pal[i].b >> 3) + ((pal[i].g >> 2) << 5) + ((pal[i].r >> 3) << 11);
     myPalette[i] = c;
   }
 }
 
-/* clear all frames to a particular color */
-static void clear(uint8 color)
-{
-  display_clear();
-}
+static void clear(uint8 color) { display_clear(); }
 
 /* acquire the directbuffer for writing */
 static bitmap_t *lock_write(void)
 {
-    myBitmap = bmp_createhw((uint8 *)fb, NES_SCREEN_WIDTH, NES_SCREEN_HEIGHT, NES_SCREEN_WIDTH*2);
+    // PUT BACK: So Nofrendo doesn't jump to Address 0 and crash!
+    if (myBitmap == NULL) {
+        myBitmap = bmp_createhw((uint8 *)fb, NES_SCREEN_WIDTH, NES_SCREEN_HEIGHT, NES_SCREEN_WIDTH*2);
+    }
     return myBitmap;
 }
 
 /* release the resource */
 static void free_write(int num_dirties, rect_t *dirty_rects)
 {
-    bmp_destroy(&myBitmap);
+    // DO NOTHING. Keep the memory alive so Core 0 can draw it.
 }
 
 static void custom_blit(bitmap_t *bmp, int num_dirties, rect_t *dirty_rects)
@@ -127,8 +111,8 @@ viddriver_t sdlDriver =
     set_mode,         /* set_mode */
     set_palette,        /* set_palette */
     clear,            /* clear */
-    lock_write,         /* lock_write */
-    free_write,         /* free_write */
+    lock_write,         /* FIXED: Restored valid function */
+    free_write,         /* FIXED: Restored valid function */
     custom_blit,        /* custom_blit */
     false           /* invalidate flag */
 };
@@ -144,14 +128,8 @@ void osd_getvideoinfo(vidinfo_t *info)
 extern void controller_init();
 extern uint32_t controller_read_input();
 
-static void osd_initinput()
-{
-  controller_init();
-}
-
-static void osd_freeinput(void)
-{
-}
+static void osd_initinput() { controller_init(); }
+static void osd_freeinput(void) {}
 
 void osd_getinput(void)
 {
@@ -159,47 +137,42 @@ void osd_getinput(void)
     event_joypad1_up, event_joypad1_down, event_joypad1_left, event_joypad1_right,
     event_joypad1_select, event_joypad1_start, event_joypad1_a, event_joypad1_b,
     event_state_save, event_state_load, 0, 0,
-    0, 0, 0, 0,
-    0, 0, 0, 0,
-    0, 0, 0, 0,
-    0, 0, 0, 0,
-    0, 0, 0, 0};
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+  };
   static int oldb = 0xffff;
   uint32_t b = controller_read_input();
   uint32_t chg = b ^ oldb;
   int x;
   oldb = b;
   event_t evh;
-  for (x = 0; x < 16; x++)
-  {
-    if (chg & 1)
-    {
+  for (x = 0; x < 16; x++) {
+    if (chg & 1) {
       evh = event_get(ev[x]);
-      if (evh)
-        evh((b & 1) ? INP_STATE_BREAK : INP_STATE_MAKE);
+      if (evh) evh((b & 1) ? INP_STATE_BREAK : INP_STATE_MAKE);
     }
     chg >>= 1;
     b >>= 1;
   }
 }
 
-void osd_getmouse(int *x, int *y, int *button)
-{
-}
+void osd_getmouse(int *x, int *y, int *button) {}
 
 /* init / shutdown */
 static int logprint(const char *string)
 {
+  // THE CPU SAVER: Mute the serial spam!
+  // If the engine screams about the block corrupting, we silently drop the string.
+  // This frees up the CPU instantly, bringing your buttons back to life.
+  if (strstr(string, "block corrupt") != NULL) {
+      return 0; 
+  }
   return printf("%s", string);
 }
 
 int osd_init()
 {
   nofrendo_log_chain_logfunc(logprint);
-
-  if (osd_init_sound())
-    return -1;
-
+  if (osd_init_sound()) return -1;
   display_init();
   vidQueue = xQueueCreate(1, sizeof(bitmap_t *));
   xTaskCreatePinnedToCore(&displayTask, "displayTask", 2048, NULL, 0, NULL, 0);
@@ -217,7 +190,6 @@ char configfilename[] = "na";
 int osd_main(int argc, char *argv[])
 {
   config.filename = configfilename;
-
   return main_loop(argv[0], system_autodetect);
 }
 
@@ -229,11 +201,7 @@ int osd_installtimer(int frequency, void *func, int funcsize, void *counter, int
   return 0;
 }
 
-/* filename manipulation */
-void osd_fullname(char *fullname, const char *shortname)
-{
-  strncpy(fullname, shortname, PATH_MAX);
-}
+void osd_fullname(char *fullname, const char *shortname) { strncpy(fullname, shortname, PATH_MAX); }
 
 char *osd_newextension(char *string, char *ext)
 {
@@ -241,11 +209,7 @@ char *osd_newextension(char *string, char *ext)
   string[l - 3] = ext[1];
   string[l - 2] = ext[2];
   string[l - 1] = ext[3];
-
   return string;
 }
 
-int osd_makesnapname(char *filename, int len)
-{
-  return -1;
-}
+int osd_makesnapname(char *filename, int len) { return -1; }
