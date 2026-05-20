@@ -5,6 +5,7 @@ extern "C"
 
 #include "hw_config.h"
 #include <Arduino_GFX_Library.h>
+#include <SD.h>
 
 // ====================================================
 // YOUR CUSTOM HARDWARE CONFIGURATION
@@ -19,7 +20,7 @@ Arduino_DataBus *bus = new Arduino_ESP32SPI(
     3,      /* CS (Chip Select) */ 
     7,      /* SCK */ 
     6,      /* MOSI */ 
-    -1      /* MISO (The screen only receives data, so we leave this blank) */
+    10      /* MISO (The screen only receives data, so we leave this blank) */
 );
 
 // CHOOSE YOUR SCREEN DRIVER:
@@ -40,10 +41,10 @@ extern uint16_t myPalette[];
 
 extern void display_begin()
 {
-    gfx->begin();
+    gfx->begin(40000000);
     
     // Back to the original Dark Grey background
-    bg_color = gfx->color565(24, 28, 24); 
+    bg_color = gfx->color565(24, 28, 24);
     gfx->fillScreen(bg_color);
 
 #ifdef TFT_BL
@@ -94,4 +95,72 @@ extern "C" void display_write_frame(const uint8_t *data[])
 extern "C" void display_clear()
 {
     gfx->fillScreen(bg_color);
+}
+
+//custom main menu logo
+extern "C" void draw_image_from_sd(const char *filename, int x, int y, int width, int height) {
+    // 1. Open the file on the SD card
+    File imgFile = SD.open(filename);
+    if (!imgFile) {
+        Serial.println("Could not find image on SD card!");
+        return;
+    }
+
+    // 2. Create a tiny memory bucket just big enough for ONE horizontal row of pixels
+    // (width * 2 because each RGB565 pixel is 2 bytes)
+    uint16_t *row_buffer = (uint16_t *)malloc(width * 2);
+    if (!row_buffer) {
+        imgFile.close();
+        return;
+    }
+
+    // 3. Read the file row-by-row and stamp it to the screen
+    for (int row = 0; row < height; row++) {
+        imgFile.read((uint8_t *)row_buffer, width * 2);
+        gfx->draw16bitRGBBitmap(x, y + row, row_buffer, width, 1);
+    }
+
+    // 4. Clean up the memory and close the file
+    free(row_buffer);
+    imgFile.close();
+}
+
+// Add this to the bottom of display.cpp
+//IN GAME OVERLAY
+
+extern "C" void draw_overlay_menu(int cursor) {
+    // 1. Draw the Menu Background (Centered for 320x240 screen)
+    gfx->fillRect(80, 60, 160, 120, gfx->color565(20, 20, 20));
+    gfx->drawRect(80, 60, 160, 120, gfx->color565(0, 255, 0));
+
+    // 2. Menu Title (Centered inside the box)
+    gfx->setCursor(127, 75);
+    gfx->setTextColor(gfx->color565(0, 255, 0));
+    gfx->setTextSize(1);
+    gfx->println("SYSTEM MENU");
+
+    // 3. Option 0: Resume Game
+    gfx->setCursor(95, 105);
+    if (cursor == 0) {
+        gfx->setTextColor(gfx->color565(255, 255, 255)); // White if selected
+        gfx->println("> Resume Game");
+    } else {
+        gfx->setTextColor(gfx->color565(0, 150, 0));     // Dark Green if idle
+        gfx->println("  Resume Game");
+    }
+
+    // 4. Option 1: Exit to Launcher
+    gfx->setCursor(95, 130);
+    if (cursor == 1) {
+        gfx->setTextColor(gfx->color565(255, 255, 255));
+        gfx->println("> Quit to Menu");
+    } else {
+        gfx->setTextColor(gfx->color565(0, 150, 0));
+        gfx->println("  Quit to Menu");
+    }
+
+    // 5. Option 2: Placeholder for your future audio module
+    gfx->setCursor(95, 155);
+    gfx->setTextColor(gfx->color565(80, 80, 80)); // Greyed out for now
+    gfx->println("  Volume: [ N/A ]");
 }
