@@ -6,6 +6,10 @@
 #include <SD_MMC.h>
 #include <Arduino_GFX_Library.h>
 #include "hw_config.h"
+#include <Adafruit_NeoPixel.h>
+#define RGB_PIN 48
+Adafruit_NeoPixel rgb_led(1, RGB_PIN, NEO_GRB + NEO_KHZ800);
+extern "C" void draw_image_from_sd(const char *filename, int x, int y, int width, int height);
 
 extern "C" {
 #include <nofrendo.h>
@@ -56,17 +60,35 @@ String show_game_menu() {
         while(true); 
     }
 
+    // ==========================================
+    // 1. DRAW STATIC GRAPHICS ONCE
+    // ==========================================
+    gfx->fillScreen(NES_BLACK);   // Clear the screen to Black
+
+    // --> NEW LED CODE HERE <--
+    rgb_led.begin();
+    rgb_led.setBrightness(1); // 15/255 = very dim, safe to look at
+    rgb_led.setPixelColor(0, rgb_led.Color(0, 255, 20)); // Gameboy Green
+    rgb_led.show(); // Push the color to the hardware
+    
+    // Draw the Title
+    gfx->setTextColor(NES_GREEN, NES_BLACK); // Green on Black
+    gfx->setCursor(10, 10);
+    gfx->println("SELECT NES GAME");
+    gfx->drawLine(10, 30, 200, 30, NES_GREEN);
+    
+    // Draw the Logo on the right side of the screen!
+    draw_image_from_sd("/logo.bin", 210, 10, 100, 100); 
+    gfx->drawRect(209, 9, 102, 102, NES_GREEN);
+
     int selectedIndex = 0;
     bool redraw = true;
 
     while (true) {
+        // ==========================================
+        // 2. ONLY REDRAW THE LIST WHEN SCROLLING
+        // ==========================================
         if (redraw) {
-            gfx->fillScreen(NES_BLACK);   // Black
-            gfx->setTextColor(NES_GREEN, NES_BLACK); // Green on Black
-            gfx->setCursor(10, 10);
-            gfx->println("SELECT NES GAME");
-            gfx->drawLine(10, 30, 200, 30, NES_GREEN);
-
             for (int i = 0; i < gameCount; i++) {
                 gfx->setCursor(20, 40 + (i * 20));
                 if (i == selectedIndex) {
@@ -74,12 +96,21 @@ String show_game_menu() {
                 } else {
                     gfx->setTextColor(NES_GREEN, NES_BLACK);
                 }
-                gfx->println(games[i]);
+                
+                // Add blank spaces to the end of the text. 
+                // This forces the ESP32 to draw "black space" over the old highlight box!
+                String displayName = games[i];
+                while (displayName.length() < 15) {
+                    displayName += " ";
+                }
+                gfx->println(displayName);
             }
             redraw = false;
         }
 
-        // We read the pins exactly as you mapped them in hw_config.h
+        // ==========================================
+        // 3. INPUT HANDLING
+        // ==========================================
         if (digitalRead(HW_CONTROLLER_GPIO_DOWN) == LOW) {
             selectedIndex++;
             if (selectedIndex >= gameCount) selectedIndex = 0; 
@@ -97,8 +128,12 @@ String show_game_menu() {
             gfx->setTextColor(NES_GREEN);
             gfx->setCursor(10, 10);
             gfx->println("Booting Nofrendo...");
+
+            // --> NEW LED CODE HERE <--
+            // Switch to a nice rich Blue (R:0, G:50, B:255)
+            rgb_led.setPixelColor(0, rgb_led.Color(0, 50, 255));
+            rgb_led.show();
             
-            // Format the path exactly how this library expects it (/fs/game.nes)
             return String(FSROOT) + "/" + games[selectedIndex]; 
         }
         delay(10);
