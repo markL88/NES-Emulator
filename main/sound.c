@@ -6,6 +6,9 @@
 #include <nes/nes.h>
 #include "hw_config.h"
 
+// NEW: Connects to the valve switch in controller.cpp
+extern volatile bool mute_game_audio;
+
 #define DEFAULT_FRAGSIZE 64
 static void (*audio_callback)(void *buffer, int length) = NULL;
 static int16_t *audio_frame;
@@ -14,7 +17,6 @@ int osd_init_sound()
 {
   audio_frame = NOFRENDO_MALLOC(4 * DEFAULT_FRAGSIZE);
 
-  // 1. THE S3 OVERRIDE: Exactly what worked in the menu, completely hardcoded.
   i2s_config_t cfg = {
     .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
     .sample_rate = 44100, 
@@ -28,20 +30,17 @@ int osd_init_sound()
     .tx_desc_auto_clear = true
   };
 
-  // Install without the legacy Nofrendo queue to ensure stability
   esp_err_t err = i2s_driver_install(I2S_NUM_0, &cfg, 0, NULL);
   
-  // 2. THE LIE DETECTOR: This will print to your Serial Monitor when Zelda boots
   printf("\n====================================\n");
   printf("NOFRENDO I2S ENGINE STARTUP: %d (0 means SUCCESS)\n", err);
   printf("====================================\n\n");
 
-  // 3. HARDCODED PINS
   i2s_pin_config_t pins = {
     .mck_io_num = I2S_PIN_NO_CHANGE, 
-    .bck_io_num = 46, // Forced to your PCB trace
-    .ws_io_num = 47,  // Forced to your PCB trace
-    .data_out_num = 45, // Forced to your PCB trace
+    .bck_io_num = 46, 
+    .ws_io_num = 47,  
+    .data_out_num = 45, 
     .data_in_num = I2S_PIN_NO_CHANGE,
   };
   
@@ -65,7 +64,6 @@ void do_audio_frame()
     int n = DEFAULT_FRAGSIZE;
     if (n > left) n = left;
     
-    // Pull the raw audio data from the NES emulation core
     if (audio_callback != NULL) {
         audio_callback(audio_frame, n); 
     }
@@ -78,20 +76,27 @@ void do_audio_frame()
     {
       int32_t raw_volume = *(--mono_ptr);
       
-      // 4. THE AMPLIFIER: Crank the weak NES output by 12x
       raw_volume = raw_volume; 
       
-      // Safety Cap so the 16-bit math doesn't overflow and screech
       if (raw_volume > 32700) raw_volume = 32700;
       if (raw_volume < -32700) raw_volume = -32700;
       
-      *(--stereo_ptr) = (int16_t)raw_volume; // Left
-      *(--stereo_ptr) = (int16_t)raw_volume; // Right
+      *(--stereo_ptr) = (int16_t)raw_volume; 
+      *(--stereo_ptr) = (int16_t)raw_volume; 
     }
 
     size_t i2s_bytes_write;
-    i2s_write(I2S_NUM_0, (const char *)audio_frame, 4 * n, &i2s_bytes_write, portMAX_DELAY);
-    left -= i2s_bytes_write / 4;
+    
+    // THE AUDIO VALVE
+    if (!mute_game_audio) {
+        // If the menu is closed, play the game audio
+        i2s_write(I2S_NUM_0, (const char *)audio_frame, 4 * n, &i2s_bytes_write, portMAX_DELAY);
+        left -= i2s_bytes_write / 4;
+    } else {
+        // If the menu is open, bypass the speaker entirely
+        // Subtracting 'n' tricks the emulator into maintaining 60 FPS
+        left -= n; 
+    }
   }
 }
 
