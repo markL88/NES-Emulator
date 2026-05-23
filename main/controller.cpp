@@ -2,6 +2,47 @@
 #include "hw_config.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <driver/i2s.h> 
+
+void play_overlay_tick() {
+    size_t bytes_written;
+    int16_t sample = 0;
+    for (int i = 0; i < 500; i++) {
+        sample = ((i / 25) % 2 == 0) ? 60000 : -60000; 
+        uint32_t sample32 = ((uint32_t)(uint16_t)sample << 16) | (uint16_t)sample;
+        i2s_write(I2S_NUM_0, &sample32, sizeof(sample32), &bytes_written, portMAX_DELAY);
+    }
+}
+
+void play_overlaymenu_tick() {
+    size_t bytes_written;
+    int16_t sample = 0;
+    for (int i = 0; i < 500; i++) {
+        sample = ((i / 100) % 2 == 0) ? 10000 : -10000; 
+        uint32_t sample32 = ((uint32_t)(uint16_t)sample << 16) | (uint16_t)sample;
+        i2s_write(I2S_NUM_0, &sample32, sizeof(sample32), &bytes_written, portMAX_DELAY);
+    }
+}
+
+void play_deselect_tick() {
+    size_t bytes_written;
+    int16_t sample = 0;
+    for (int i = 0; i < 3000; i++) {
+        sample = ((i / 21) % 2 == 0) ? 2000 : -2000; 
+        uint32_t sample32 = ((uint32_t)(uint16_t)sample << 16) | (uint16_t)sample;
+        i2s_write(I2S_NUM_0, &sample32, sizeof(sample32), &bytes_written, portMAX_DELAY);
+    }
+    for (int i = 0; i < 3000; i++) {
+        sample = ((i / 28) % 2 == 0) ? 2000 : -2000; 
+        uint32_t sample32 = ((uint32_t)(uint16_t)sample << 16) | (uint16_t)sample;
+        i2s_write(I2S_NUM_0, &sample32, sizeof(sample32), &bytes_written, portMAX_DELAY);
+    }
+    for (int i = 0; i < 6000; i++) {
+        sample = ((i / 42) % 2 == 0) ? 2000 : -2000; 
+        uint32_t sample32 = ((uint32_t)(uint16_t)sample << 16) | (uint16_t)sample;
+        i2s_write(I2S_NUM_0, &sample32, sizeof(sample32), &bytes_written, portMAX_DELAY);
+    }
+}
 
 extern "C" void draw_overlay_menu(int cursor);
 
@@ -18,76 +59,76 @@ extern "C" void controller_init() {
 
 bool is_overlay_active = false;
 int menu_cursor = 0;
+unsigned long last_input_time = 0; 
+
+extern "C" {
+    volatile bool mute_game_audio = false; 
+    volatile bool menu_needs_redraw = false; 
+    volatile bool power_off_requested = false; // THE NEW SHUTDOWN FLAG
+}
 
 extern "C" uint32_t controller_read_input() {
-    // 1. Read trigger pins BEFORE freezing
     bool start = (digitalRead(HW_CONTROLLER_GPIO_START) == LOW);
     bool select = (digitalRead(HW_CONTROLLER_GPIO_SELECT) == LOW);
 
-    // 2. Check for the Menu Trigger (Start + Select)
-    if (start && select && !is_overlay_active) {
-        is_overlay_active = true;
+    if (start && select && (millis() - last_input_time > 300)) {
+        is_overlay_active = !is_overlay_active; 
         menu_cursor = 0;
-        draw_overlay_menu(menu_cursor);
-        delay(300); // Debounce entry
+        last_input_time = millis();
+
+        if (is_overlay_active) {
+            play_overlay_tick(); 
+            mute_game_audio = true; 
+            menu_needs_redraw = true; 
+        } else {
+            play_overlay_tick(); 
+            mute_game_audio = false; 
+        }
     }
 
-    bool just_resumed = false;
+    static int ghost_wipe_frames = 0; 
 
-    // 3. The "Time Freeze" Loop
-    while (is_overlay_active) {
+    if (is_overlay_active) {
         bool m_up = (digitalRead(HW_CONTROLLER_GPIO_UP) == LOW);
         bool m_down = (digitalRead(HW_CONTROLLER_GPIO_DOWN) == LOW);
         bool m_a = (digitalRead(HW_CONTROLLER_GPIO_A) == LOW);
 
-        if (m_up && menu_cursor > 0) {
+        if (m_up && menu_cursor > 0 && (millis() - last_input_time > 200)) {
             menu_cursor--;
-            draw_overlay_menu(menu_cursor);
-            delay(200);
+            play_overlaymenu_tick();
+            menu_needs_redraw = true; 
+            last_input_time = millis();
         }
         
-        if (m_down && menu_cursor < 1) {
+        if (m_down && menu_cursor < 1 && (millis() - last_input_time > 200)) {
             menu_cursor++;
-            draw_overlay_menu(menu_cursor);
-            delay(200);
+            play_overlaymenu_tick();
+            menu_needs_redraw = true; 
+            last_input_time = millis();
         }
 
-        if (m_a) {
+        if (m_a && (millis() - last_input_time > 200)) {
             if (menu_cursor == 0) {
                 is_overlay_active = false; 
-                just_resumed = true; // Flag that we just escaped
-                delay(300); // Give your finger time to lift off 'A'
+                mute_game_audio = false; 
+                play_overlay_tick();
+                ghost_wipe_frames = 5; 
             } else if (menu_cursor == 1) {
-                // Quit to Menu: The "Lights Out" Protocol
+                play_deselect_tick();
                 
-                // 1. Force GPIO 8 to output mode
-                pinMode(8, OUTPUT); 
-                
-                // 2. Kill the backlight
-                digitalWrite(8, LOW); 
-                
-                // 3. Give the LED a fraction of a second to physically fade to black
-                delay(100);
-                ESP.restart(); 
+                // FLIP THE FLAG INSTEAD OF KILLING POWER
+                power_off_requested = true; 
             }
+            last_input_time = millis();
         }
-        
-        // Feed the watchdog to prevent crashes
-        vTaskDelay(20 / portTICK_PERIOD_MS);
+        return 0xFFFF;
     }
 
-    // ==========================================
-    // 4. The Ghost Input Fix
-    // ==========================================
-    // If we just closed the menu, force a completely blank controller frame. 
-    // This destroys the Start+Select ghosts from before the time freeze.
-    if (just_resumed) {
+    if (ghost_wipe_frames > 0) {
+        ghost_wipe_frames--;
         return 0xFFFF; 
     }
 
-    // ==========================================
-    // 5. Normal Game Logic (Re-read fresh pins!)
-    // ==========================================
     uint32_t b = 0xFFFF;
     bool up = (digitalRead(HW_CONTROLLER_GPIO_UP) == LOW);
     bool down = (digitalRead(HW_CONTROLLER_GPIO_DOWN) == LOW);
@@ -96,7 +137,6 @@ extern "C" uint32_t controller_read_input() {
     bool a = (digitalRead(HW_CONTROLLER_GPIO_A) == LOW);
     bool b_btn = (digitalRead(HW_CONTROLLER_GPIO_B) == LOW);
     
-    // Re-read Start and Select so they don't get stuck!
     start = (digitalRead(HW_CONTROLLER_GPIO_START) == LOW);
     select = (digitalRead(HW_CONTROLLER_GPIO_SELECT) == LOW);
 
