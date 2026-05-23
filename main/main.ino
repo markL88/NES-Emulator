@@ -11,6 +11,62 @@
 Adafruit_NeoPixel rgb_led(1, RGB_PIN, NEO_GRB + NEO_KHZ800);
 extern "C" void draw_image_from_sd(const char *filename, int x, int y, int width, int height);
 
+#include <driver/i2s.h>
+
+// Initialize the I2S driver for the Menu
+void init_menu_audio() {
+    i2s_config_t i2s_config = {
+        .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
+        .sample_rate = 44100,
+        .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
+        .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
+        .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+        .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+        .dma_buf_count = 4,
+        .dma_buf_len = 128,
+        .use_apll = false,
+        .tx_desc_auto_clear = true
+    };
+    
+    i2s_pin_config_t pin_config = {
+        .mck_io_num = I2S_PIN_NO_CHANGE, // Protects the S3
+        .bck_io_num = 46,
+        .ws_io_num = 47,
+        .data_out_num = 45,
+        .data_in_num = I2S_PIN_NO_CHANGE
+    };
+    
+    // ==========================================
+    // NEW DEBUG SECTION
+    // ==========================================
+    Serial.println("Attempting to start I2S...");
+    
+    esp_err_t err = i2s_driver_install(I2S_NUM_0, &i2s_config, 0, NULL);
+    
+    if (err == ESP_OK) {
+        Serial.println("I2S Driver Installed Successfully!");
+    } else {
+        Serial.println("I2S DRIVER FAILED TO INSTALL!");
+    }
+    
+    i2s_set_pin(I2S_NUM_0, &pin_config);
+    i2s_zero_dma_buffer(I2S_NUM_0);
+}
+// Generates a crisp, 7-millisecond synthesized "Tick"
+void play_menu_tick() {
+    size_t bytes_written;
+    int16_t sample = 0;
+    
+    // 300 samples at 44.1kHz is extremely fast
+    for (int i = 0; i < 300; i++) {
+        // Toggle every 15 samples to create a high-pitched click.
+        // Amplitude is 600 (out of 32767) for a soft UI volume.
+        sample = ((i / 100) % 2 == 0) ? 10000 : -10000; 
+        uint32_t sample32 = ((uint32_t)(uint16_t)sample << 16) | (uint16_t)sample;
+        i2s_write(I2S_NUM_0, &sample32, sizeof(sample32), &bytes_written, portMAX_DELAY);
+    }
+}
+
 extern "C" {
 #include <nofrendo.h>
 }
@@ -84,6 +140,8 @@ String show_game_menu() {
     int selectedIndex = 0;
     bool redraw = true;
 
+    init_menu_audio(); //menu sound
+
     while (true) {
         // ==========================================
         // 2. ONLY REDRAW THE LIST WHEN SCROLLING
@@ -115,12 +173,14 @@ String show_game_menu() {
             selectedIndex++;
             if (selectedIndex >= gameCount) selectedIndex = 0; 
             redraw = true;
+            play_menu_tick(); // <-- NEW: Play the blip!
             delay(150); 
         }
         if (digitalRead(HW_CONTROLLER_GPIO_UP) == LOW) {
             selectedIndex--;
             if (selectedIndex < 0) selectedIndex = gameCount - 1; 
             redraw = true;
+            play_menu_tick(); // <-- NEW: Play the blip!
             delay(150); 
         }
         if (digitalRead(HW_CONTROLLER_GPIO_A) == LOW) {
@@ -133,6 +193,13 @@ String show_game_menu() {
             // Switch to a nice rich Blue (R:0, G:50, B:255)
             rgb_led.setPixelColor(0, rgb_led.Color(0, 50, 255));
             rgb_led.show();
+
+            play_menu_tick(); // Play one final confirmation blip
+            delay(100);       // Wait for the sound to finish
+            
+            // --> CRITICAL NEW LINE <--
+            // Hand the car keys back to the system so the emulator doesn't crash!
+            i2s_driver_uninstall(I2S_NUM_0);
             
             return String(FSROOT) + "/" + games[selectedIndex]; 
         }
