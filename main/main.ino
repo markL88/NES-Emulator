@@ -36,6 +36,7 @@ void init_menu_audio() {
         .data_in_num = I2S_PIN_NO_CHANGE
     };
     
+
     // ==========================================
     // NEW DEBUG SECTION
     // ==========================================
@@ -52,16 +53,46 @@ void init_menu_audio() {
     i2s_set_pin(I2S_NUM_0, &pin_config);
     i2s_zero_dma_buffer(I2S_NUM_0);
 }
+
 // Generates a crisp, 7-millisecond synthesized "Tick"
 void play_menu_tick() {
     size_t bytes_written;
     int16_t sample = 0;
     
     // 300 samples at 44.1kHz is extremely fast
-    for (int i = 0; i < 300; i++) {
+    for (int i = 0; i < 500; i++) {
         // Toggle every 15 samples to create a high-pitched click.
         // Amplitude is 600 (out of 32767) for a soft UI volume.
         sample = ((i / 100) % 2 == 0) ? 10000 : -10000; 
+        uint32_t sample32 = ((uint32_t)(uint16_t)sample << 16) | (uint16_t)sample;
+        i2s_write(I2S_NUM_0, &sample32, sizeof(sample32), &bytes_written, portMAX_DELAY);
+    }
+}
+
+void play_select_tick() {
+    size_t bytes_written;
+    int16_t sample = 0;
+    
+    // Note 1: C5 (Low Note - Divisor 42)
+    // 3000 samples = ~68 milliseconds
+    for (int i = 0; i < 3000; i++) {
+        sample = ((i / 42) % 2 == 0) ? 2000 : -2000; 
+        uint32_t sample32 = ((uint32_t)(uint16_t)sample << 16) | (uint16_t)sample;
+        i2s_write(I2S_NUM_0, &sample32, sizeof(sample32), &bytes_written, portMAX_DELAY);
+    }
+
+    // Note 2: G5 (Middle Note - Divisor 28)
+    // 3000 samples = ~68 milliseconds
+    for (int i = 0; i < 3000; i++) {
+        sample = ((i / 28) % 2 == 0) ? 2000 : -2000; 
+        uint32_t sample32 = ((uint32_t)(uint16_t)sample << 16) | (uint16_t)sample;
+        i2s_write(I2S_NUM_0, &sample32, sizeof(sample32), &bytes_written, portMAX_DELAY);
+    }
+
+    // Note 3: C6 (High Octave - Divisor 21)
+    // 6000 samples = ~136 milliseconds (Held twice as long for emphasis!)
+    for (int i = 0; i < 6000; i++) {
+        sample = ((i / 21) % 2 == 0) ? 2000 : -2000; 
         uint32_t sample32 = ((uint32_t)(uint16_t)sample << 16) | (uint16_t)sample;
         i2s_write(I2S_NUM_0, &sample32, sizeof(sample32), &bytes_written, portMAX_DELAY);
     }
@@ -164,37 +195,39 @@ String show_game_menu() {
                 gfx->println(displayName);
             }
             redraw = false;
+
+            delay(100);
         }
 
         // ==========================================
         // 3. INPUT HANDLING
         // ==========================================
+
+
         if (digitalRead(HW_CONTROLLER_GPIO_DOWN) == LOW) {
             selectedIndex++;
             if (selectedIndex >= gameCount) selectedIndex = 0; 
             redraw = true;
             play_menu_tick(); // <-- NEW: Play the blip!
-            delay(150); 
         }
         if (digitalRead(HW_CONTROLLER_GPIO_UP) == LOW) {
             selectedIndex--;
             if (selectedIndex < 0) selectedIndex = gameCount - 1; 
             redraw = true;
             play_menu_tick(); // <-- NEW: Play the blip!
-            delay(150); 
         }
         if (digitalRead(HW_CONTROLLER_GPIO_A) == LOW) {
             gfx->fillScreen(NES_BLACK);
             gfx->setTextColor(NES_GREEN);
             gfx->setCursor(10, 10);
-            gfx->println("Booting Nofrendo...");
+            gfx->println("Loading Game...");
 
             // --> NEW LED CODE HERE <--
             // Switch to a nice rich Blue (R:0, G:50, B:255)
             rgb_led.setPixelColor(0, rgb_led.Color(0, 50, 255));
             rgb_led.show();
 
-            play_menu_tick(); // Play one final confirmation blip
+            play_select_tick(); //confirmation tick
             delay(100);       // Wait for the sound to finish
             
             // --> CRITICAL NEW LINE <--
