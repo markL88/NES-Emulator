@@ -44,11 +44,13 @@ void init_menu_audio() {
     
     esp_err_t err = i2s_driver_install(I2S_NUM_0, &i2s_config, 0, NULL);
     
+    /*
     if (err == ESP_OK) {
         Serial.println("I2S Driver Installed Successfully!");
     } else {
         Serial.println("I2S DRIVER FAILED TO INSTALL!");
     }
+    */
     
     i2s_set_pin(I2S_NUM_0, &pin_config);
     i2s_zero_dma_buffer(I2S_NUM_0);
@@ -269,7 +271,7 @@ void setup()
     {
         Serial.println("Filesystem mount failed! Please check hw_config.h settings.");
         gfx->setCursor(10, 10);
-        gfx->println("Filesystem mount failed! Please check hw_config.h settings.");
+        gfx->println("No SD Card detected. Try re-inserting it.");
     }
     else
     {
