@@ -64,7 +64,9 @@ unsigned long last_input_time = 0;
 extern "C" {
     volatile bool mute_game_audio = false; 
     volatile bool menu_needs_redraw = false; 
-    volatile bool power_off_requested = false; // THE NEW SHUTDOWN FLAG
+    
+    // Import our custom backdoor!
+    extern void force_sram_save_now(void); 
 }
 
 extern "C" uint32_t controller_read_input() {
@@ -116,8 +118,19 @@ extern "C" uint32_t controller_read_input() {
             } else if (menu_cursor == 1) {
                 play_deselect_tick();
                 
-                // FLIP THE FLAG INSTEAD OF KILLING POWER
-                power_off_requested = true; 
+                // 1. Force the physical SRAM dump to the SD card!
+                force_sram_save_now(); 
+                
+                // 2. The 3-Second Lifeline
+                // Core 1 now has all the time it needs to finish the frame, 
+                // break the loop, open the SD card, write 8KB, and safely close the file.
+                delay(300); 
+                
+                // 3. Lights Out
+                pinMode(8, OUTPUT); 
+                digitalWrite(8, LOW); 
+                delay(50);
+                ESP.restart(); 
             }
             last_input_time = millis();
         }
