@@ -10,7 +10,6 @@ extern "C"
 extern bool is_overlay_active;
 extern int menu_cursor;
 extern volatile bool menu_needs_redraw; 
-extern volatile bool power_off_requested; // NEW: Listening for the shutdown flag
 
 extern "C" void draw_overlay_menu(int cursor); 
 
@@ -26,7 +25,7 @@ extern uint16_t myPalette[];
 
 extern void display_begin()
 {
-    gfx->begin(60000000); // Overclocked to 80MHz to prevent screen tearing!
+    gfx->begin(60000000); 
     bg_color = gfx->color565(24, 28, 24);
     gfx->fillScreen(bg_color);
 
@@ -59,6 +58,41 @@ extern "C" void display_init()
 
 extern "C" void display_write_frame(const uint8_t *data[])
 {
+    // ==========================================
+    // 1. THE SMART BLINDFOLD
+    // ==========================================
+    static bool is_booting = true;
+
+    if (is_booting) {
+        bool is_blank = true;
+        
+        // Grab a pixel from the dead-center of the screen
+        uint8_t bg_pixel = data[NES_SCREEN_HEIGHT / 2][(NES_SCREEN_WIDTH / 2) + frame_x_offset];
+
+        // Scan a grid across the screen to detect when graphics arrive
+        for (int y = 30; y < 210; y += 4) {
+            for (int x = 32; x < 224; x += 4) {
+                if (data[y][x + frame_x_offset] != bg_pixel) {
+                    is_blank = false; 
+                    break; 
+                }
+            }
+            if (!is_blank) break;
+        }
+
+        // Drop the frame if it's blank, keeping the loading text visible
+        if (is_blank) {
+            return; 
+        } else {
+            // Graphics detected! Wipe the loading text and disable the blindfold forever.
+            gfx->fillScreen(bg_color);
+            is_booting = false; 
+        }
+    }
+
+    // ==========================================
+    // 2. NORMAL SCISSOR CLIP LOGIC
+    // ==========================================
     if (!is_overlay_active) {
         gfx->startWrite();
         gfx->writeAddrWindow(frame_x, frame_y, frame_width, frame_height);
@@ -97,26 +131,11 @@ extern "C" void display_write_frame(const uint8_t *data[])
             menu_needs_redraw = false; 
         }
     }
-
-    // THE SAFE SHUTDOWN PROTOCOL
-    if (power_off_requested) {
-        // The LCD has officially released the SPI cables. It is now safe to talk to the SD card!
-        nes_poweroff(); 
-        
-        // Give the card 500ms to safely write the .sav file before killing the power
-        delay(500);
-        
-        pinMode(8, OUTPUT);
-        digitalWrite(8, LOW);
-        delay(100);
-        
-        ESP.restart();
-    }
 }
 
 extern "C" void display_clear()
 {
-    gfx->fillScreen(bg_color);
+    //gfx->fillScreen(bg_color);
 }
 
 extern "C" void draw_image_from_sd(const char *filename, int x, int y, int width, int height) {
