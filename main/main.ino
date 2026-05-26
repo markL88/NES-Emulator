@@ -111,6 +111,7 @@ FS &filesystem = SD;
 #define NES_BLACK 0x0000
 #define NES_GREEN 0x07E0
 #define NES_RED   0xF800
+#define UI_BLUE   0x019F
 
 int16_t bg_color;
 extern Arduino_TFT *gfx;
@@ -188,12 +189,20 @@ String show_game_menu() {
                     gfx->setTextColor(NES_GREEN, NES_BLACK);
                 }
                 
-                // Add blank spaces to the end of the text. 
-                // This forces the ESP32 to draw "black space" over the old highlight box!
+                // 1. Grab the real filename
                 String displayName = games[i];
+                
+                // 2. THE CHOP: Strip the last 4 characters (".nes") for the UI!
+                // We use length() - 4 so it works perfectly on every single game name.
+                if (displayName.length() > 4) {
+                    displayName = displayName.substring(0, displayName.length() - 4);
+                }
+
+                // 3. Add blank spaces to the end of the text to wipe the old highlight box
                 while (displayName.length() < 15) {
                     displayName += " ";
                 }
+                
                 gfx->println(displayName);
             }
             redraw = false;
