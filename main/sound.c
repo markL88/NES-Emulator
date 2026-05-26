@@ -8,6 +8,7 @@
 
 // NEW: Connects to the valve switch in controller.cpp
 extern volatile bool mute_game_audio;
+extern volatile int global_volume; // NEW: Import the volume tracker
 
 #define DEFAULT_FRAGSIZE 64
 static void (*audio_callback)(void *buffer, int length) = NULL;
@@ -76,8 +77,11 @@ void do_audio_frame()
     {
       int32_t raw_volume = *(--mono_ptr);
       
-      raw_volume = raw_volume; 
+      // THE NEW VOLUME MATH: Scale the sound wave down based on our 0-10 tracker.
+      // If volume is 10, it plays at 100%. If volume is 5, it divides the wave by half!
+      raw_volume = (raw_volume * global_volume) / 10;
       
+      // The original Clipping Safety Net
       if (raw_volume > 32700) raw_volume = 32700;
       if (raw_volume < -32700) raw_volume = -32700;
       
